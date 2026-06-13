@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A living visualization of the Raft consensus algorithm — elections, log replication, and time travel through a simulated key-value store cluster."
+    />
+    <title>Raft — consensus, visualized</title>
+  </head>
+  <body>
+    <div id="stage">
+      <div id="scene"></div>
+      <div id="labels"></div>
+    </div>
+
+    <header id="topbar"></header>
+    <aside id="dials"></aside>
+    <aside id="side"></aside>
+    <section id="logmatrix"></section>
+    <footer id="timeline"></footer>
+    <div id="toasts"></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
