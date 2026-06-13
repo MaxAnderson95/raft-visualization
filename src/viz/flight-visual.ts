@@ -5,15 +5,27 @@ import type { FlightView } from "./types.ts";
 const TRAIL_POINTS = 16;
 const TRAIL_SPAN = 0.2; // fraction of the curve behind the head
 
+/** Both head textures a flight may use; heartbeats get the hollow ring. */
+export interface FlightTextures {
+  readonly glow: THREE.Texture;
+  readonly ring: THREE.Texture;
+}
+
 const HEAD_SCALE: Record<FlightKind, number> = {
   voteReq: 0.42,
   voteGrant: 0.42,
   voteDeny: 0.3,
   append: 0.44,
-  heartbeat: 0.26,
+  // Slightly larger than its old 0.26 so the hollow centre reads through bloom.
+  heartbeat: 0.32,
   ackOk: 0.24,
   ackNo: 0.3,
 };
+
+/** Cargo beads trailing an AppendEntries packet, one per replicated entry. */
+const BEAD_CAP = 5; // beyond this the train just reads as "lots"
+const BEAD_HEAD_SCALE = 0.2; // nearest-to-head bead size
+const BEAD_SPACING = 0.04; // fraction of curve between beads
 
 /**
  * The arc a message travels: lifted off the plane and pushed sideways so
@@ -51,22 +63,27 @@ export class FlightVisual {
   private readonly trail: THREE.Line;
   private readonly trailPositions: Float32Array;
   private readonly baseColor: THREE.Color;
+  /** One glowing orb per carried log entry, towed behind the head. */
+  private readonly beads: THREE.Sprite[] = [];
 
   constructor(
     kind: FlightKind,
     from: THREE.Vector3,
     to: THREE.Vector3,
-    glowTexture: THREE.Texture,
+    textures: FlightTextures,
     laneSign: number,
+    entryCount = 0,
   ) {
     this.group = new THREE.Group();
     const color = new THREE.Color(FLIGHT_COLORS[kind]);
     this.baseColor = color.clone();
     this.curve = flightCurve(from, to, laneSign);
 
+    // A heartbeat carries no entries, so it flies as a hollow ring; everything
+    // else is a solid glow.
     this.head = new THREE.Sprite(
       new THREE.SpriteMaterial({
-        map: glowTexture,
+        map: kind === "heartbeat" ? textures.ring : textures.glow,
         color,
         transparent: true,
         blending: THREE.AdditiveBlending,
@@ -75,6 +92,23 @@ export class FlightVisual {
     );
     this.head.scale.setScalar(HEAD_SCALE[kind]);
     this.group.add(this.head);
+
+    // Cargo: a bead for each replicated entry, tapering away from the head.
+    const beadCount = kind === "append" ? Math.min(entryCount, BEAD_CAP) : 0;
+    for (let i = 0; i < beadCount; i += 1) {
+      const bead = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: textures.glow,
+          color,
+          transparent: true,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+      bead.scale.setScalar(BEAD_HEAD_SCALE * (1 - i * 0.12));
+      this.beads.push(bead);
+      this.group.add(bead);
+    }
 
     this.trailPositions = new Float32Array(TRAIL_POINTS * 3);
     const trailColors = new Float32Array(TRAIL_POINTS * 3);
@@ -130,6 +164,23 @@ export class FlightVisual {
     }
     const attr = this.trail.geometry.getAttribute("position") as THREE.BufferAttribute;
     attr.needsUpdate = true;
+
+    // Tow the cargo beads behind the head, matching its (possibly reddened)
+    // colour so the payload dies with the packet. Beads not yet off the
+    // sender are hidden.
+    for (let i = 0; i < this.beads.length; i += 1) {
+      const bead = this.beads[i];
+      if (!bead) continue;
+      const t = p - BEAD_SPACING * (i + 1);
+      if (t <= 0) {
+        bead.visible = false;
+        continue;
+      }
+      bead.visible = true;
+      this.curve.getPoint(t, scratch);
+      bead.position.copy(scratch);
+      bead.material.color.copy(this.head.material.color);
+    }
   }
 
   /**
@@ -165,5 +216,6 @@ export class FlightVisual {
     this.head.material.dispose();
     this.trail.geometry.dispose();
     (this.trail.material as THREE.Material).dispose();
+    for (const bead of this.beads) bead.material.dispose();
   }
 }

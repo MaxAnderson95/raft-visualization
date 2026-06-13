@@ -34,6 +34,8 @@ export interface FlightView {
   readonly progress: number;
   /** Doomed by packet loss — reddens as it approaches its death point. */
   readonly dying: boolean;
+  /** Log entries carried (AppendEntries replication); 0 for everything else. */
+  readonly entryCount: number;
 }
 
 export type FxKind = "election" | "commit" | "fizzle";

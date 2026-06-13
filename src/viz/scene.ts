@@ -7,10 +7,10 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import type { NodeId } from "../raft/index.ts";
 import { INK, REDUCED_MOTION, ROLE_CSS, termColor } from "../theme.ts";
 import { createBlast, createFx, type Fx } from "./fx.ts";
-import { FlightVisual, flightCurve } from "./flight-visual.ts";
+import { FlightVisual, type FlightTextures, flightCurve } from "./flight-visual.ts";
 import { createNodeVisualContext, NodeVisual, type NodeVisualContext } from "./node-visual.ts";
 import { PartitionVisual } from "./partition-visual.ts";
-import { createGlowTexture, createStageTexture } from "./textures.ts";
+import { createGlowTexture, createRingTexture, createStageTexture } from "./textures.ts";
 import type { NodeView, RenderView } from "./types.ts";
 
 const RING_RADIUS = 6;
@@ -40,6 +40,7 @@ export class ClusterScene {
   private readonly bloom: UnrealBloomPass;
 
   private readonly glowTexture: THREE.Texture;
+  private readonly flightTextures: FlightTextures;
   private readonly nodeCtx: NodeVisualContext;
   private readonly starfield: THREE.Points;
 
@@ -97,6 +98,7 @@ export class ClusterScene {
     this.controls.maxPolarAngle = 1.45;
 
     this.glowTexture = createGlowTexture();
+    this.flightTextures = { glow: this.glowTexture, ring: createRingTexture() };
     this.nodeCtx = createNodeVisualContext(this.glowTexture);
 
     // The stage: a pool of light and a faint orbit guide where nodes sit.
@@ -278,7 +280,14 @@ export class ClusterScene {
         const from = this.positionOf(flight.from);
         const to = this.positionOf(flight.to);
         const laneSign = flight.from < flight.to ? 1 : -1;
-        visual = new FlightVisual(flight.kind, from, to, this.glowTexture, laneSign);
+        visual = new FlightVisual(
+          flight.kind,
+          from,
+          to,
+          this.flightTextures,
+          laneSign,
+          flight.entryCount,
+        );
         this.flightVisuals.set(flight.id, visual);
         this.root.add(visual.group);
       }

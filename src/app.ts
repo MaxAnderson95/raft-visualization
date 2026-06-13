@@ -104,6 +104,7 @@ export class App {
         // Lost packets die at deliverAt having covered only half the arc.
         progress: ((t - f.sentAt) / (f.deliverAt - f.sentAt)) * (f.lost ? 0.5 : 1),
         dying: f.lost === true,
+        entryCount: entryCountOf(f.message),
       }));
 
     const fx = this.pendingFx;
@@ -323,4 +324,9 @@ function flightKind(message: {
     default:
       return message.success ? "ackOk" : "ackNo";
   }
+}
+
+/** Number of log entries a message carries — only AppendEntries ever has any. */
+function entryCountOf(message: { kind: string; entries?: readonly unknown[] }): number {
+  return message.entries?.length ?? 0;
 }

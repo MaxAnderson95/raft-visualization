@@ -24,6 +24,25 @@ export function createGlowTexture(): THREE.Texture {
   });
 }
 
+/**
+ * Hollow glowing annulus — a bright ring around an empty centre. Used for
+ * heartbeats: an AppendEntries carrying no entries reads as a packet with
+ * nothing inside it. Additive blending leaves the dark core intact, so the
+ * hole survives bloom.
+ */
+export function createRingTexture(): THREE.Texture {
+  return canvasTexture(128, (ctx) => {
+    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0, "rgba(255,255,255,0)");
+    g.addColorStop(0.42, "rgba(255,255,255,0)");
+    g.addColorStop(0.62, "rgba(255,255,255,1)");
+    g.addColorStop(0.78, "rgba(255,255,255,0.35)");
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+  });
+}
+
 /** Faint blue pool of light the cluster stands on. */
 export function createStageTexture(): THREE.Texture {
   return canvasTexture(512, (ctx) => {
