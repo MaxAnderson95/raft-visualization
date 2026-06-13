@@ -60,6 +60,8 @@ export class FlightVisual {
 
   private readonly curve: THREE.QuadraticBezierCurve3;
   private readonly head: THREE.Sprite;
+  /** Ring drawn around the head while this flight is being inspected. */
+  private readonly selection: THREE.Sprite;
   private readonly trail: THREE.Line;
   private readonly trailPositions: Float32Array;
   private readonly baseColor: THREE.Color;
@@ -92,6 +94,21 @@ export class FlightVisual {
     );
     this.head.scale.setScalar(HEAD_SCALE[kind]);
     this.group.add(this.head);
+
+    // A bright ring that appears only while the packet is being inspected.
+    this.selection = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: textures.ring,
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.selection.scale.setScalar(HEAD_SCALE[kind] * 2.6);
+    this.selection.visible = false;
+    this.group.add(this.selection);
 
     // Cargo: a bead for each replicated entry, tapering away from the head.
     const beadCount = kind === "append" ? Math.min(entryCount, BEAD_CAP) : 0;
@@ -140,6 +157,7 @@ export class FlightVisual {
     const p = Math.min(Math.max(view.progress, 0), 1, limit);
     const headPos = this.curve.getPoint(p);
     this.head.position.copy(headPos);
+    this.selection.position.copy(headPos);
 
     if (view.dying) {
       // A doomed packet reddens over the last stretch before it dies at 0.5.
@@ -212,8 +230,18 @@ export class FlightVisual {
     return this.curve.getPoint(Math.min(Math.max(progress, 0), 1));
   }
 
+  /** Current world position of the head, for screen-space picking. */
+  worldHead(target: THREE.Vector3): THREE.Vector3 {
+    return this.head.getWorldPosition(target);
+  }
+
+  setSelected(on: boolean): void {
+    this.selection.visible = on;
+  }
+
   dispose(): void {
     this.head.material.dispose();
+    this.selection.material.dispose();
     this.trail.geometry.dispose();
     (this.trail.material as THREE.Material).dispose();
     for (const bead of this.beads) bead.material.dispose();

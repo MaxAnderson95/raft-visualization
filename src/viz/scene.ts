@@ -27,8 +27,12 @@ const TAU = Math.PI * 2;
 const FIT_H = 7;
 const FIT_V = 9.4;
 
+/** Pointer-to-head distance (px) within which a tiny message comet is pickable. */
+const FLIGHT_PICK_RADIUS = 36;
+
 export interface SceneCallbacks {
   onSelectNode(id: NodeId | null): void;
+  onSelectFlight(id: number): void;
 }
 
 export class ClusterScene {
@@ -62,6 +66,7 @@ export class ClusterScene {
   private readonly raycaster = new THREE.Raycaster();
   private pointerDownAt: { x: number; y: number } | null = null;
   private hovered: NodeId | null = null;
+  private hoveredFlight: number | null = null;
   private elapsed = 0;
   private fxEpoch = 0;
 
@@ -299,6 +304,7 @@ export class ClusterScene {
         blocked && this.wall?.active ? visual.crossing(this.wall.point, this.wall.normal) : null;
 
       visual.apply(flight, wallProgress ?? undefined);
+      visual.setSelected(view.selectedFlight === flight.id);
 
       if (wallProgress !== null && flight.progress >= wallProgress) {
         const blast = createBlast(visual.pointAt(wallProgress), this.glowTexture);
@@ -433,10 +439,41 @@ export class ClusterScene {
         }
       }
     }
-    this.renderer.domElement.style.cursor = this.hovered ? "pointer" : "default";
 
-    // Keep selection valid if the node vanished.
+    // Nodes win; otherwise fall back to the message comets. They're tiny
+    // sprites, so a screen-space distance test is far more forgiving than a
+    // ray intersection — pick the head nearest the pointer within a radius.
+    this.hoveredFlight = null;
+    if (!this.hovered) this.hoveredFlight = this.pickFlight();
+
+    this.renderer.domElement.style.cursor =
+      this.hovered || this.hoveredFlight !== null ? "pointer" : "default";
+
     void view;
+  }
+
+  private pickFlight(): number | null {
+    if (this.flightVisuals.size === 0) return null;
+    const w = this.container.clientWidth;
+    const h = this.container.clientHeight;
+    const px = (this.pointer.x * 0.5 + 0.5) * w;
+    const py = (-this.pointer.y * 0.5 + 0.5) * h;
+
+    const scratch = new THREE.Vector3();
+    let best = FLIGHT_PICK_RADIUS;
+    let nearest: number | null = null;
+    for (const [id, visual] of this.flightVisuals) {
+      visual.worldHead(scratch).project(this.camera);
+      if (scratch.z > 1) continue; // behind the camera
+      const sx = (scratch.x * 0.5 + 0.5) * w;
+      const sy = (-scratch.y * 0.5 + 0.5) * h;
+      const d = Math.hypot(sx - px, sy - py);
+      if (d < best) {
+        best = d;
+        nearest = id;
+      }
+    }
+    return nearest;
   }
 
   private bindPointer(): void {
@@ -457,6 +494,10 @@ export class ClusterScene {
       if (!down) return;
       const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
       if (moved > 6) return;
+      if (this.hoveredFlight !== null) {
+        this.callbacks.onSelectFlight(this.hoveredFlight);
+        return;
+      }
       this.callbacks.onSelectNode(this.hovered);
     });
   }

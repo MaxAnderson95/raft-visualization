@@ -60,4 +60,6 @@ export interface RenderView {
   readonly fxEpoch: number;
   /** Active network split at the playhead, or null. Drives the wall + blocks. */
   readonly partition: PartitionState | null;
+  /** Id of the flight the user is inspecting (highlighted), or null. */
+  readonly selectedFlight: number | null;
 }

@@ -8,6 +8,8 @@ interface DialOptions {
   readonly max: number;
   readonly step: number;
   readonly format: (value: number) => string;
+  /** Hover explanation of what the setting controls. */
+  readonly tooltip?: string;
   /** Read the current value from the source of truth. */
   readonly read: () => number;
   readonly onInput: (value: number) => void;
@@ -19,6 +21,54 @@ interface Dial {
   sync(): void;
 }
 
+// One document-level listener closes any open tap-tooltip when you click away.
+let tipDismissArmed = false;
+function armTipDismiss(): void {
+  if (tipDismissArmed) return;
+  tipDismissArmed = true;
+  document.addEventListener("click", () => {
+    for (const open of document.querySelectorAll(".info.is-open")) {
+      open.classList.remove("is-open");
+    }
+  });
+}
+
+/**
+ * A small "ⓘ" badge that reveals an explanation. Hover works on desktop;
+ * on touch (no hover) a tap toggles it open, and a tap elsewhere closes it.
+ */
+function infoBadge(text: string): HTMLElement {
+  armTipDismiss();
+  const badge = el("span", "info", "i");
+  badge.tabIndex = 0;
+  badge.setAttribute("role", "button");
+  badge.setAttribute("aria-label", text);
+
+  const tip = el("span", "info-tip", text);
+  tip.setAttribute("role", "tooltip");
+  badge.appendChild(tip);
+
+  const toggle = (): void => {
+    const willOpen = !badge.classList.contains("is-open");
+    for (const open of document.querySelectorAll(".info.is-open")) {
+      open.classList.remove("is-open");
+    }
+    badge.classList.toggle("is-open", willOpen);
+  };
+
+  badge.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggle();
+  });
+  badge.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggle();
+    }
+  });
+  return badge;
+}
+
 /**
  * A labelled slider with a live value readout. `sync` re-reads the model
  * every frame, so resets (mini or global) reflect immediately; while the
@@ -27,8 +77,11 @@ interface Dial {
 function dial(options: DialOptions): Dial {
   const row = el("div", "dial");
   const head = el("div", "dial-head");
+  const label = el("span", "dial-label");
+  label.append(el("span", "", options.label));
+  if (options.tooltip) label.appendChild(infoBadge(options.tooltip));
   const value = el("span", "v", options.format(options.read()));
-  head.append(el("span", "", options.label), value);
+  head.append(label, value);
 
   const input = el("input") as HTMLInputElement;
   input.type = "range";
@@ -88,14 +141,25 @@ export class ChaosPanel {
     });
 
     const body = el("div", "dials-body");
+
+    const crashLabel = el("div", "sub-label", "leader failure");
+    crashLabel.appendChild(
+      infoBadge(
+        "Periodically crash whichever node is leader, forcing the cluster to elect a new one. Crashed nodes restart on their own after a short delay.",
+      ),
+    );
     this.chaosBtn = el("button", "btn", "Leader crashes");
-    this.chaosBtn.title = "Periodically crash the leader";
     this.chaosBtn.addEventListener("click", () => app.toggleChaos());
-    body.appendChild(this.chaosBtn);
+    body.append(crashLabel, this.chaosBtn);
 
     // Network partition: split a fraction of the cluster off into its own
     // group. Messages across the divide are dropped until healed.
     const partLabel = el("div", "sub-label", "network partition");
+    partLabel.appendChild(
+      infoBadge(
+        "Split the cluster into two groups that can't reach each other. Only a side holding a majority can elect a leader and commit — the other stalls. Heal to reconnect.",
+      ),
+    );
     const partRow = el("div", "seg-row");
     this.partitionBtns = [
       { label: "½", fraction: 1 / 2, title: "Split off about half the nodes" },
@@ -123,6 +187,8 @@ export class ChaosPanel {
         max: 100,
         step: 1,
         format: pct,
+        tooltip:
+          "Chance each message is dropped in flight. Raft recovers dropped AppendEntries on the next heartbeat, but high loss stalls replication and can trigger re-elections.",
         read: () => Math.round(net.loss * 100),
         onInput: (v) => {
           net.loss = v / 100;
@@ -134,6 +200,8 @@ export class ChaosPanel {
         max: 150,
         step: 0.5,
         format: ms,
+        tooltip:
+          "Base one-way network delay before a message is delivered. Raises round-trip time; if it approaches the election timeout, followers start campaigning.",
         read: () => roundHalf(net.latency),
         onInput: (v) => {
           net.latency = v;
@@ -145,6 +213,8 @@ export class ChaosPanel {
         max: 100,
         step: 0.5,
         format: (v) => `± ${v} ms`,
+        tooltip:
+          "Random extra delay added on top of latency (0 up to this much, per message). Models an unsteady network where delivery times vary.",
         read: () => roundHalf(net.jitter),
         onInput: (v) => {
           net.jitter = v;
@@ -196,6 +266,8 @@ export class TimingPanel {
         max: 600,
         step: 10,
         format: ms,
+        tooltip:
+          "Minimum time a follower waits without hearing from the leader before starting a new election. Lower = faster failover, but more spurious elections.",
         read: () => sim.electionTimeoutMin,
         onInput: (v) => {
           const spread = sim.electionTimeoutMax - sim.electionTimeoutMin;
@@ -208,6 +280,8 @@ export class TimingPanel {
         max: 400,
         step: 10,
         format: (v) => `+ ${v} ms`,
+        tooltip:
+          "Random window added above the minimum. Each node picks its timeout in [min, min+spread], so followers don't all campaign at once — this is what breaks split votes.",
         read: () => sim.electionTimeoutMax - sim.electionTimeoutMin,
         onInput: (v) => {
           sim.setTiming({ electionTimeoutMax: sim.electionTimeoutMin + v });
@@ -219,6 +293,8 @@ export class TimingPanel {
         max: 200,
         step: 5,
         format: ms,
+        tooltip:
+          "How often the leader sends AppendEntries heartbeats to keep followers from timing out. Must stay well below the election timeout.",
         read: () => sim.heartbeatInterval,
         onInput: (v) => {
           sim.setTiming({ heartbeatInterval: v });

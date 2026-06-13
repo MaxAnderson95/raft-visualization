@@ -338,10 +338,16 @@ input:focus-visible {
 }
 
 .dial-head {
+  position: relative;
   display: flex;
   justify-content: space-between;
   font-size: 11px;
   color: var(--dim);
+}
+
+.dial-label {
+  display: inline-flex;
+  align-items: center;
 }
 
 .dial-head .v {
@@ -370,11 +376,91 @@ input:focus-visible {
 }
 
 .sub-label {
+  position: relative;
   margin-top: 2px;
   font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--dim);
+}
+
+/* ----------------------------------------------------------- info tooltips */
+
+.info {
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  margin-left: 5px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--faint);
+  cursor: help;
+  user-select: none;
+  transition:
+    color 150ms ease,
+    border-color 150ms ease;
+}
+
+.info:hover,
+.info:focus-visible,
+.info.is-open {
+  color: var(--text);
+  border-color: var(--dim);
+  outline: none;
+}
+
+/* Each .panel sets backdrop-filter, which traps its own stacking context —
+   so a tooltip opening near the panel's bottom edge would be painted under
+   the next panel. Lift the active panel above its neighbours while showing. */
+.panel:has(.info:hover),
+.panel:has(.info:focus-visible),
+.panel:has(.info.is-open) {
+  position: relative;
+  z-index: 40;
+}
+
+.info-tip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  width: 196px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--haze) 97%, transparent);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 45%);
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 11px;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-transform: none;
+  text-align: left;
+  color: var(--text);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 120ms ease,
+    visibility 120ms ease;
+}
+
+.info:hover .info-tip,
+.info:focus-visible .info-tip,
+.info.is-open .info-tip {
+  opacity: 1;
+  visibility: visible;
 }
 
 .seg-row {
@@ -1115,6 +1201,154 @@ body.is-compact #toasts {
 body.is-compact.sheet-open #timeline {
   visibility: hidden;
   pointer-events: none;
+}
+
+/* --------------------------------------------------------- message modal */
+
+.msg-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: color-mix(in srgb, var(--ink) 60%, transparent);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.msg-overlay.is-open {
+  display: flex;
+}
+
+.msg-modal {
+  width: min(340px, 100%);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 55%);
+}
+
+.msg-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.msg-dot {
+  flex-shrink: 0;
+  width: 11px;
+  height: 11px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: currentcolor;
+  box-shadow: 0 0 10px currentcolor;
+}
+
+.msg-titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.msg-kind {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 23px;
+  line-height: 1.15;
+}
+
+.msg-sub {
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.02em;
+}
+
+.msg-close {
+  flex-shrink: 0;
+  width: 27px;
+  height: 27px;
+  font-size: 19px;
+  line-height: 1;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--dim);
+  transition:
+    color 150ms ease,
+    border-color 150ms ease;
+}
+
+.msg-close:hover {
+  color: var(--text);
+  border-color: var(--dim);
+}
+
+.msg-route {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 26px;
+}
+
+.msg-arrow {
+  color: var(--dim);
+  font-style: normal;
+}
+
+.msg-section-label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.msg-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.msg-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.msg-entry-idx {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.msg-entry-term {
+  color: var(--dim);
+  font-size: 10.5px;
+}
+
+.msg-entry-cmd {
+  margin-left: auto;
+  color: var(--follower);
+  font-variant-numeric: tabular-nums;
+}
+
+.msg-meta {
+  font-size: 11px;
+}
+
+.msg-meta .v {
+  color: var(--dim);
 }
 
 /* --------------------------------------------------------- reduced motion */

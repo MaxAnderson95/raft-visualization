@@ -11,6 +11,7 @@ import { Feed } from "./ui/feed.ts";
 import { Inspector } from "./ui/inspector.ts";
 import { KVPanel } from "./ui/kvpanel.ts";
 import { LogMatrix } from "./ui/logmatrix.ts";
+import { MessageModal } from "./ui/message-modal.ts";
 import { MobileSheet } from "./ui/sheet.ts";
 import { Timeline } from "./ui/timeline.ts";
 import { Topbar } from "./ui/topbar.ts";
@@ -39,6 +40,7 @@ const scene = new ClusterScene(need("scene"), need("labels"), {
     // On mobile, tapping a node raises the inspector so the tap does something.
     if (app.selected) sheet.open("side");
   },
+  onSelectFlight: (id) => app.inspectFlight(id),
 });
 
 const topbar = new Topbar(need("topbar"), app);
@@ -51,6 +53,7 @@ const kvPanel = new KVPanel(side, app);
 const feed = new Feed(side);
 const logMatrix = new LogMatrix(need("logmatrix"));
 const timeline = new Timeline(need("timeline"), app);
+const messageModal = new MessageModal(need("modal"), app);
 
 window.addEventListener("keydown", (e) => {
   if (e.target instanceof HTMLInputElement) return;
@@ -64,6 +67,10 @@ window.addEventListener("keydown", (e) => {
       app.goLive();
       break;
     case "Escape":
+      if (app.selectedFlight !== null) {
+        app.closeFlight();
+        break;
+      }
       app.select(app.selected);
       break;
     case "ArrowLeft":
@@ -106,6 +113,7 @@ function loop(now: number): void {
   feed.update(app);
   logMatrix.update(app);
   timeline.update();
+  messageModal.update(app);
 
   requestAnimationFrame(loop);
 }

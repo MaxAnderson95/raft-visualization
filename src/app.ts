@@ -10,7 +10,7 @@
 import { DEFAULT_TIMING } from "./raft/index.ts";
 import type { NodeId } from "./raft/index.ts";
 import { Autopilot, RaftSimulation } from "./sim/index.ts";
-import type { Frame, KVCommand } from "./sim/index.ts";
+import type { Frame, KVCommand, MessageFlight } from "./sim/index.ts";
 import type { FlightKind } from "./theme.ts";
 import type { FlightView, FxSpawn, NodeLogCell, NodeView, RenderView } from "./viz/types.ts";
 
@@ -29,8 +29,13 @@ export class App {
   speed = DEFAULT_SPEED;
   paused = false;
   selected: NodeId | null = null;
+  /** Id of a message comet the user is inspecting (freezes the sim), or null. */
+  selectedFlight: number | null = null;
 
   onToast: (message: string) => void = () => {};
+
+  /** True when inspecting a message forced the pause, so closing can resume. */
+  private pausedByInspect = false;
 
   private lastFxTime = 0;
   private pendingFx: FxSpawn[] = [];
@@ -109,7 +114,14 @@ export class App {
 
     const fx = this.pendingFx;
     this.pendingFx = [];
-    return { nodes, flights, fx, fxEpoch: this.fxEpoch, partition: frame.partition };
+    return {
+      nodes,
+      flights,
+      fx,
+      fxEpoch: this.fxEpoch,
+      partition: frame.partition,
+      selectedFlight: this.selectedFlight,
+    };
   }
 
   // --------------------------------------------------------------- playback
@@ -139,6 +151,29 @@ export class App {
 
   select(id: NodeId | null): void {
     this.selected = this.selected === id ? null : id;
+  }
+
+  /** Freeze on a message in flight and open its inspector. */
+  inspectFlight(id: number): void {
+    this.selectedFlight = id;
+    if (!this.paused) {
+      this.pausedByInspect = true;
+      this.paused = true;
+    }
+  }
+
+  /** Close the message inspector, resuming playback if inspecting paused it. */
+  closeFlight(): void {
+    this.selectedFlight = null;
+    if (this.pausedByInspect) {
+      this.paused = false;
+      this.pausedByInspect = false;
+    }
+  }
+
+  /** The in-flight message at the playhead with this id, if it still exists. */
+  findFlight(id: number): MessageFlight | undefined {
+    return this.frame().inFlight.find((f) => f.id === id);
   }
 
   // ----------------------------------------------------------- intervention
