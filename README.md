@@ -7,6 +7,8 @@ rendered as a living scene you can pause, rewind, speed up, and poke at.
 
 **▶ Live: http://maxanderson.tech/raft-visualization/**
 
+![A five-node Raft cluster mid-election: nodes arranged in a ring with glowing message comets in flight, the Chaos and Raft Timing panels on the left, and the node inspector, key-value store, and event feed on the right.](docs/screenshot.png)
+
 The simulated system is a fictional replicated key-value store (think etcd), but
 the store is just a prop. The real subject is Raft itself: how a group of
 machines with no shared clock and an unreliable network nevertheless agree on a
