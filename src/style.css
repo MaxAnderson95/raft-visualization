@@ -365,6 +365,33 @@ input:focus-visible {
   color: var(--leader);
 }
 
+.dials-status.is-split {
+  color: var(--danger);
+}
+
+.sub-label {
+  margin-top: 2px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.seg-row {
+  display: flex;
+  gap: 6px;
+}
+
+.btn.seg {
+  flex: 1;
+  padding: 7px 0;
+  text-align: center;
+  background: transparent;
+  backdrop-filter: none;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ------------------------------------------------------------- side stack */
 
 #side {

@@ -61,7 +61,8 @@ Glowing comets travel between nodes. Their color tells you what they are:
 - **Acknowledgements** flowing back to the leader.
 
 If you turn on packet loss, doomed messages redden and **explode mid-flight**
-instead of arriving.
+instead of arriving. During a network partition, messages that try to cross
+between the two groups slam into the dividing wall and burst there.
 
 ### The mini log strip
 
@@ -84,11 +85,45 @@ Break the network and watch Raft cope:
 
 - **Leader crashes** — periodically kills the leader so you can watch
   re-elections happen on their own.
+- **Network partition** (`½` / `⅓` / `¼`) — sever the cluster into two groups,
+  splitting off roughly that fraction of the nodes into an isolated minority. A
+  glowing barrier slices across the scene, and any message that tries to cross
+  it races to the wall and detonates. The split is a random arc of the ring, so
+  it may or may not strand the current leader. **Heal partition** reconnects the
+  two sides. (See _Partitions, for real_ below for what to watch for.)
 - **Packet loss** — drop a percentage of messages (0–100%). Crank it up and
   consensus stalls; ease it back and the cluster recovers.
 - **Latency** and **jitter** — how long messages take, and how much that varies.
 
 Each control has its own **reset**.
+
+#### Partitions, for real
+
+A partition is just the network refusing to carry messages between the two
+groups — and because the Raft library underneath is faithful to the paper, the
+right behavior falls out on its own. What you'll see depends on which side the
+leader lands:
+
+- **Leader in the majority.** It still has a quorum, so it keeps committing
+  without missing a beat. The stranded minority can't hear it, times out, and
+  campaigns over and over — but it can never gather a majority of the _whole_
+  cluster, so it just churns through terms with no winner.
+- **Leader in the minority.** Now it's cut off from a quorum, so it stays
+  "leader" but **can't commit anything** — writes pile up in its log, forever
+  uncommitted. Meanwhile the majority side notices the silence, holds an
+  election, and crowns a **new leader in a higher term**. For a moment the
+  cluster has two leaders — classic split-brain — but only the majority's is
+  able to make promises.
+
+When you **heal** the split, the stale leader hears a message from the higher
+term, immediately steps down, throws away its uncommitted entries, and adopts
+the winner's log. The cluster reconverges on one history.
+
+One thing to watch: because this implementation tracks the original paper (no
+_Pre-Vote_ or _leader lease_), the minority's ever-climbing term can briefly
+**disrupt** a perfectly healthy leader the instant the link returns, forcing one
+more election before things settle. That's not a bug — it's exactly the problem
+those later refinements were invented to solve.
 
 ### Raft timing (top-left)
 
@@ -181,6 +216,11 @@ up top.
   up, and its color flip to the current term.
 - **Break the network.** Push packet loss toward 100% and watch the cluster fail
   to make progress; ease it back and watch it heal.
+- **Split the brain.** Hit `½` to partition the cluster and watch the wall go up.
+  Keep splitting until the leader lands on the _minority_ side: it freezes
+  (committing nothing) while the majority elects a rival leader in a new term.
+  Then **heal** it and watch the loser step down and its orphaned entries
+  vanish.
 - **Cause chaos on purpose.** Shrink the **timeout spread** until elections
   routinely split between multiple candidates — then widen it again and see the
   splits disappear. That single dial is the whole reason Raft randomizes its

@@ -1,4 +1,5 @@
 import type { NodeId, Role } from "../raft/index.ts";
+import type { PartitionState } from "../sim/index.ts";
 import type { FlightKind } from "../theme.ts";
 
 /** One slot of the per-node mini log strip. */
@@ -55,4 +56,6 @@ export interface RenderView {
   readonly fx: readonly FxSpawn[];
   /** Bumped on backward scrub / fork — live effects are stale, clear them. */
   readonly fxEpoch: number;
+  /** Active network split at the playhead, or null. Drives the wall + blocks. */
+  readonly partition: PartitionState | null;
 }

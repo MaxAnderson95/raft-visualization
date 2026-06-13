@@ -69,9 +69,12 @@ const ms = (v: number): string => `${v} ms`;
 const pct = (v: number): string => `${v}%`;
 const roundHalf = (v: number): number => Math.round(v * 2) / 2;
 
-/** Failure & network conditions: leader crashes, loss, latency, jitter. */
+/** Failure & network conditions: leader crashes, partition, loss, latency, jitter. */
 export class ChaosPanel {
   private readonly chaosBtn: HTMLButtonElement;
+  private readonly partitionBtns: HTMLButtonElement[];
+  private readonly healBtn: HTMLButtonElement;
+  private readonly partitionStatus: HTMLElement;
   private readonly dials: Dial[];
 
   constructor(container: HTMLElement, app: App) {
@@ -80,6 +83,7 @@ export class ChaosPanel {
 
     const title = titleBar("chaos", () => {
       app.sim.resetNetwork();
+      app.sim.healPartition();
       app.autopilot.chaos = false;
     });
 
@@ -88,6 +92,29 @@ export class ChaosPanel {
     this.chaosBtn.title = "Periodically crash the leader";
     this.chaosBtn.addEventListener("click", () => app.toggleChaos());
     body.appendChild(this.chaosBtn);
+
+    // Network partition: split a fraction of the cluster off into its own
+    // group. Messages across the divide are dropped until healed.
+    const partLabel = el("div", "sub-label", "network partition");
+    const partRow = el("div", "seg-row");
+    this.partitionBtns = [
+      { label: "½", fraction: 1 / 2, title: "Split off about half the nodes" },
+      { label: "⅓", fraction: 1 / 3, title: "Split off about a third of the nodes" },
+      { label: "¼", fraction: 1 / 4, title: "Split off about a quarter of the nodes" },
+    ].map(({ label, fraction, title: t }) => {
+      const btn = el("button", "btn seg", label);
+      btn.title = t;
+      btn.addEventListener("click", () => app.partition(fraction));
+      return btn;
+    });
+    partRow.append(...this.partitionBtns);
+
+    this.healBtn = el("button", "btn", "Heal partition");
+    this.healBtn.title = "Reconnect the two groups";
+    this.healBtn.addEventListener("click", () => app.healPartition());
+    this.partitionStatus = el("div", "dials-status", "network whole");
+
+    body.append(partLabel, partRow, this.healBtn, this.partitionStatus);
 
     this.dials = [
       dial({
@@ -132,6 +159,18 @@ export class ChaosPanel {
 
   update(app: App): void {
     this.chaosBtn.classList.toggle("is-on", app.autopilot.chaos);
+
+    const frame = app.frame();
+    const part = frame.partition;
+    const canSplit = frame.nodes.length >= 2;
+    for (const btn of this.partitionBtns) btn.disabled = !canSplit;
+    this.healBtn.disabled = !part;
+    this.healBtn.classList.toggle("is-danger", !!part);
+    this.partitionStatus.classList.toggle("is-split", !!part);
+    this.partitionStatus.textContent = part
+      ? `split — ${part.groupA.join(", ")}  ⇿  ${part.groupB.join(", ")}`
+      : "network whole";
+
     for (const d of this.dials) d.sync();
   }
 }

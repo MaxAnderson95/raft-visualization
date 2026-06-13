@@ -39,6 +39,18 @@ export interface NetworkConditions {
   loss: number;
 }
 
+/**
+ * A two-way network split. Messages between the two groups never arrive —
+ * exactly as if a link between them went down. Each group is a contiguous
+ * arc of the ring so the split has a clean dividing line.
+ */
+export interface PartitionState {
+  /** The smaller, "split-away" side (a contiguous ring arc). */
+  readonly groupA: readonly NodeId[];
+  /** Everyone else. */
+  readonly groupB: readonly NodeId[];
+}
+
 /** Why a frame was recorded. */
 export type SimCause =
   | { readonly kind: "init" }
@@ -55,7 +67,9 @@ export type SimCause =
   | { readonly kind: "nodeAdded"; readonly nodeId: NodeId }
   | { readonly kind: "nodeRemoved"; readonly nodeId: NodeId }
   | { readonly kind: "nodeStopped"; readonly nodeId: NodeId }
-  | { readonly kind: "nodeRestarted"; readonly nodeId: NodeId };
+  | { readonly kind: "nodeRestarted"; readonly nodeId: NodeId }
+  | { readonly kind: "partitioned"; readonly partition: PartitionState }
+  | { readonly kind: "partitionHealed" };
 
 export interface NarratedEvent {
   readonly nodeId: NodeId;
@@ -70,6 +84,8 @@ export interface Frame {
   readonly nodes: readonly RaftNodeSnapshot<KVCommand>[];
   readonly kv: ReadonlyMap<NodeId, ReadonlyMap<string, string>>;
   readonly inFlight: readonly MessageFlight[];
+  /** Active network split at this instant, or null if the network is whole. */
+  readonly partition: PartitionState | null;
 }
 
 export interface SimulationOptions {
@@ -115,6 +131,11 @@ export class RaftSimulation {
   private kv = new Map<NodeId, ReadonlyMap<string, string>>();
   private flights: MessageFlight[] = [];
   private framesInternal: Frame[] = [];
+
+  // Active network split (null = whole network). `partitionA` is the group-A
+  // membership set, kept in sync with `partitionState` for fast lookups.
+  private partitionState: PartitionState | null = null;
+  private partitionA: Set<NodeId> | null = null;
 
   private now = 0;
   private flightSeq = 0;
@@ -315,6 +336,7 @@ export class RaftSimulation {
       const peers = [...this.nodes.keys()].filter((p) => p !== otherId);
       events.push(...this.absorb(otherId, other.setPeers(peers)));
     }
+    this.repartitionForMembership();
     this.record({ kind: "nodeAdded", nodeId: id }, events);
     this.afterEvents(events);
     return id;
@@ -330,8 +352,51 @@ export class RaftSimulation {
       const peers = [...this.nodes.keys()].filter((p) => p !== otherId);
       events.push(...this.absorb(otherId, other.setPeers(peers)));
     }
+    this.repartitionForMembership();
     this.record({ kind: "nodeRemoved", nodeId: id }, events);
     this.afterEvents(events);
+    return true;
+  }
+
+  /** The live network split, or null. */
+  get activePartition(): PartitionState | null {
+    return this.partitionState;
+  }
+
+  /**
+   * Sever the network into two groups. `fraction` (≈ 1/2, 1/3, 1/4) sets how
+   * many nodes are split away into the smaller, isolated group, chosen as a
+   * random contiguous arc of the ring — so it may or may not contain the
+   * current leader. Messages between the groups are dropped until healed.
+   */
+  partition(fraction: number): PartitionState | null {
+    const ids = this.ringOrder();
+    const n = ids.length;
+    if (n < 2) return null;
+
+    // Floor keeps group A the minority (or exactly half on an even split);
+    // clamp guarantees both sides keep at least one node.
+    const k = Math.max(1, Math.min(n - 1, Math.floor(n * fraction)));
+    const start = Math.floor(this.rngNet() * n);
+    const groupA: NodeId[] = [];
+    for (let i = 0; i < k; i += 1) groupA.push(ids[(start + i) % n] as NodeId);
+
+    const aSet = new Set(groupA);
+    const groupB = ids.filter((id) => !aSet.has(id));
+    const state: PartitionState = { groupA, groupB };
+
+    this.partitionState = state;
+    this.partitionA = aSet;
+    this.record({ kind: "partitioned", partition: state }, []);
+    return state;
+  }
+
+  /** Reconnect the two groups; in-flight messages flow again. */
+  healPartition(): boolean {
+    if (!this.partitionState) return false;
+    this.partitionState = null;
+    this.partitionA = null;
+    this.record({ kind: "partitionHealed" }, []);
     return true;
   }
 
@@ -349,6 +414,8 @@ export class RaftSimulation {
     this.now = 0;
     this.flights = [];
     this.framesInternal = [];
+    this.partitionState = null;
+    this.partitionA = null;
     this.rngNet = mulberry32((this.seed ^ 0x9e3779b9) + this.forkCount * 0x85eb);
 
     const ids = [...this.nodes.keys()];
@@ -422,6 +489,8 @@ export class RaftSimulation {
     }
     this.kv = new Map(frame.kv);
     this.flights = frame.inFlight.filter((f) => f.deliverAt > frame.time);
+    this.partitionState = frame.partition;
+    this.partitionA = frame.partition ? new Set(frame.partition.groupA) : null;
   }
 
   // -------------------------------------------------------------------------
@@ -443,6 +512,13 @@ export class RaftSimulation {
 
     if (flight.lost) {
       this.record({ kind: "drop", flight, reason: "packet loss" }, []);
+      return;
+    }
+    // A live partition severs the link the moment a crossing message would
+    // arrive — so messages already on the wire when the split forms die too,
+    // and any still crossing when it heals get through.
+    if (this.crossesPartition(flight.message.from, flight.message.to)) {
+      this.record({ kind: "drop", flight, reason: "partitioned" }, []);
       return;
     }
     const target = this.nodes.get(flight.message.to);
@@ -502,6 +578,7 @@ export class RaftSimulation {
       nodes: [...this.nodes.values()].map((n) => n.snapshot()),
       kv: new Map(this.kv),
       inFlight: [...this.flights],
+      partition: this.partitionState,
     });
     if (this.framesInternal.length > this.maxFrames) {
       this.framesInternal.splice(0, this.framesInternal.length - this.maxFrames);
@@ -545,5 +622,39 @@ export class RaftSimulation {
   private nextNodeId(): NodeId {
     this.nodeOrdinal += 1;
     return `n${this.nodeOrdinal}`;
+  }
+
+  /** Present node ids in ring order (by ordinal) — matches the visual layout. */
+  private ringOrder(): NodeId[] {
+    return [...this.nodes.keys()].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+  }
+
+  /** True when `from` and `to` sit on opposite sides of a live partition. */
+  private crossesPartition(from: NodeId, to: NodeId): boolean {
+    if (!this.partitionA) return false;
+    return this.partitionA.has(from) !== this.partitionA.has(to);
+  }
+
+  /**
+   * Keep a live partition consistent after the membership changes: drop gone
+   * nodes, drop fresh nodes onto the majority side, and heal entirely if a
+   * side empties out.
+   */
+  private repartitionForMembership(): void {
+    if (!this.partitionState) return;
+    const present = new Set(this.nodes.keys());
+    const groupA = this.partitionState.groupA.filter((id) => present.has(id));
+    const groupB = this.partitionState.groupB.filter((id) => present.has(id));
+    const known = new Set([...groupA, ...groupB]);
+    for (const id of this.ringOrder()) {
+      if (!known.has(id)) groupB.push(id);
+    }
+    if (groupA.length === 0 || groupB.length === 0) {
+      this.partitionState = null;
+      this.partitionA = null;
+      return;
+    }
+    this.partitionState = { groupA, groupB };
+    this.partitionA = new Set(groupA);
   }
 }

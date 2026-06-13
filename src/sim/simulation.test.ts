@@ -244,6 +244,109 @@ describe("RaftSimulation", () => {
     expect(restarted).toBe(true);
   });
 
+  it("a partition splits the ring into two contiguous, complete arcs", () => {
+    const sim = new RaftSimulation({ seed: 5, nodeCount: 7 });
+    sim.advanceTo(2000);
+
+    const part = sim.partition(1 / 3);
+    expect(part).not.toBeNull();
+    // floor(7 / 3) = 2 split away into the minority.
+    expect(part!.groupA).toHaveLength(2);
+    expect(part!.groupB).toHaveLength(5);
+    // Every node assigned exactly once.
+    expect(new Set([...part!.groupA, ...part!.groupB]).size).toBe(7);
+
+    // Group A is one contiguous run around the ring (exactly two boundaries).
+    const order = sim.nodeIds().sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+    const inA = order.map((id) => part!.groupA.includes(id));
+    let boundaries = 0;
+    for (let i = 0; i < order.length; i += 1) {
+      if (inA[i] !== inA[(i + 1) % order.length]) boundaries += 1;
+    }
+    expect(boundaries).toBe(2);
+  });
+
+  it("the fraction sets how many nodes are split away", () => {
+    const sim = new RaftSimulation({ seed: 1, nodeCount: 8 });
+    expect(sim.partition(1 / 2)!.groupA).toHaveLength(4);
+    sim.healPartition();
+    expect(sim.partition(1 / 3)!.groupA).toHaveLength(2);
+    sim.healPartition();
+    expect(sim.partition(1 / 4)!.groupA).toHaveLength(2);
+  });
+
+  it("the majority side makes progress while the minority is starved", () => {
+    const sim = new RaftSimulation({ seed: 3 });
+    sim.advanceTo(2000);
+    expect(sim.leaderId()).not.toBeNull();
+
+    const part = sim.partition(1 / 2)!;
+    const majority = part.groupB.length >= part.groupA.length ? part.groupB : part.groupA;
+    const minority = majority === part.groupB ? part.groupA : part.groupB;
+    sim.advanceTo(6000);
+
+    // The majority converges on a single leader; the minority can't (no quorum).
+    const f = lastFrame(sim);
+    const role = (id: string): string => f.nodes.find((n) => n.id === id)!.role;
+    expect(majority.filter((id) => role(id) === "leader")).toHaveLength(1);
+
+    // A write reaches every majority node and no minority node.
+    expect(sim.propose({ op: "set", key: "side", value: "majority" })).toBe(true);
+    sim.advanceTo(sim.duration + 2000);
+    const g = lastFrame(sim);
+    for (const id of majority) expect(g.kv.get(id)?.get("side")).toBe("majority");
+    for (const id of minority) expect(g.kv.get(id)?.get("side")).toBeUndefined();
+  });
+
+  it("healing a partition reunifies the cluster on one leader", () => {
+    const sim = new RaftSimulation({ seed: 3 });
+    sim.advanceTo(2000);
+    sim.partition(1 / 3);
+    sim.advanceTo(7000);
+
+    expect(sim.healPartition()).toBe(true);
+    sim.advanceTo(13000);
+
+    const f = lastFrame(sim);
+    expect(f.nodes.filter((n) => n.role === "leader" && !n.stopped)).toHaveLength(1);
+
+    // The real convergence proof: a fresh write now reaches every node.
+    expect(sim.propose({ op: "set", key: "k", value: "healed" })).toBe(true);
+    sim.advanceTo(sim.duration + 3000);
+    const g = lastFrame(sim);
+    for (const id of sim.nodeIds()) expect(g.kv.get(id)?.get("k")).toBe("healed");
+  });
+
+  it("partition state lives in the timeline (fork before it = gone)", () => {
+    const sim = new RaftSimulation({ seed: 3 });
+    sim.advanceTo(2000);
+    sim.partition(1 / 2);
+    sim.advanceTo(4000);
+    expect(sim.activePartition).not.toBeNull();
+    expect(lastFrame(sim).partition).not.toBeNull();
+
+    sim.forkAt(1000);
+    expect(sim.activePartition).toBeNull();
+    expect(lastFrame(sim).partition).toBeNull();
+  });
+
+  it("reset and node removal heal an active partition", () => {
+    const sim = new RaftSimulation({ seed: 7, nodeCount: 3 });
+    sim.advanceTo(2000);
+
+    const part = sim.partition(1 / 3)!;
+    expect(part.groupA).toHaveLength(1);
+    sim.removeNode(part.groupA[0]!);
+    // The isolated side emptied out, so the split heals.
+    expect(sim.activePartition).toBeNull();
+
+    sim.partition(1 / 2);
+    expect(sim.activePartition).not.toBeNull();
+    sim.reset();
+    expect(sim.activePartition).toBeNull();
+    expect(lastFrame(sim).partition).toBeNull();
+  });
+
   it("trims history beyond maxFrames but keeps the live edge consistent", () => {
     const sim = new RaftSimulation({ seed: 3, maxFrames: 200 });
     sim.advanceTo(10_000);

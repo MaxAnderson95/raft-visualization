@@ -108,7 +108,7 @@ export class App {
 
     const fx = this.pendingFx;
     this.pendingFx = [];
-    return { nodes, flights, fx, fxEpoch: this.fxEpoch };
+    return { nodes, flights, fx, fxEpoch: this.fxEpoch, partition: frame.partition };
   }
 
   // --------------------------------------------------------------- playback
@@ -224,6 +224,29 @@ export class App {
     this.onToast(this.autopilot.chaos ? "Chaos on — leaders will crash" : "Chaos off");
   }
 
+  /** Split the cluster into two groups (~fraction is isolated). */
+  partition(fraction: number): void {
+    this.ensureLive();
+    const state = this.sim.partition(fraction);
+    if (!state) {
+      this.onToast("Need at least two nodes to split the network");
+      return;
+    }
+    const leader = this.sim.leaderId();
+    const isolated = leader !== null && state.groupA.includes(leader);
+    this.onToast(
+      `Network split — ${state.groupA.join(", ")} cut off from ${state.groupB.join(", ")}` +
+        (leader ? ` · leader ${leader} is ${isolated ? "isolated" : "with the majority"}` : ""),
+    );
+    this.collectFx();
+  }
+
+  /** Reconnect a partitioned network. */
+  healPartition(): void {
+    this.ensureLive();
+    if (this.sim.healPartition()) this.onToast("Partition healed — links restored");
+  }
+
   // -------------------------------------------------------------- internals
 
   private propose(command: KVCommand, label: string): boolean {
@@ -259,7 +282,9 @@ export class App {
       if (!frame || frame.time <= this.lastFxTime) break;
       if (frame.time > this.playhead) continue;
 
-      if (frame.cause.kind === "drop") {
+      // Partitioned drops are exploded against the wall by the scene itself
+      // (it knows where the barrier is), so skip the generic burst for them.
+      if (frame.cause.kind === "drop" && frame.cause.reason !== "partitioned") {
         const flight = frame.cause.flight;
         this.pendingFx.push({
           kind: "burst",

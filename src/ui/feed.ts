@@ -97,10 +97,20 @@ function narrateCause(cause: SimCause): { nodeId: string | null; html: string } 
         html: `client → <strong>${cause.nodeId}</strong> · ${escapeHtml(formatCommand(cause.command))} <span style="opacity:.6">(index ${cause.index})</span>`,
       };
     case "drop":
+      // Per-packet partition drops would flood the feed (every heartbeat
+      // across the divide) and the wall already shows them — stay quiet.
+      if (cause.reason === "partitioned") return null;
       return {
         nodeId: cause.flight.message.to,
         html: `message to <strong>${cause.flight.message.to}</strong> lost (${cause.reason})`,
       };
+    case "partitioned":
+      return {
+        nodeId: null,
+        html: `network partitioned — <strong>${cause.partition.groupA.join(", ")}</strong> cut off from <strong>${cause.partition.groupB.join(", ")}</strong>`,
+      };
+    case "partitionHealed":
+      return { nodeId: null, html: "partition healed — links restored" };
     case "nodeAdded":
       return { nodeId: cause.nodeId, html: `<strong>${cause.nodeId}</strong> joined the cluster` };
     case "nodeRemoved":

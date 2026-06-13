@@ -100,15 +100,23 @@ export class FlightVisual {
     this.group.add(this.trail);
   }
 
-  apply(view: FlightView): void {
-    const p = Math.min(Math.max(view.progress, 0), 1);
+  apply(view: FlightView, wallProgress?: number): void {
+    // A partitioned packet only travels as far as the barrier before it dies.
+    const limit = wallProgress ?? 1;
+    const p = Math.min(Math.max(view.progress, 0), 1, limit);
     const headPos = this.curve.getPoint(p);
     this.head.position.copy(headPos);
 
-    // A doomed packet reddens over the last stretch before it dies at 0.5.
     if (view.dying) {
+      // A doomed packet reddens over the last stretch before it dies at 0.5.
       const redness = Math.min(Math.max((p - 0.2) / 0.3, 0), 1);
       this.head.material.color.copy(this.baseColor).lerp(DEATH_COLOR, redness);
+    } else if (wallProgress !== undefined && wallProgress > 0) {
+      // Heading into the wall: redden over the final approach to it.
+      const redness = Math.min(Math.max(view.progress / wallProgress - 0.55, 0) / 0.45, 1);
+      this.head.material.color.copy(this.baseColor).lerp(DEATH_COLOR, redness);
+    } else {
+      this.head.material.color.copy(this.baseColor);
     }
 
     const tailStart = Math.max(0, p - TRAIL_SPAN);
@@ -122,6 +130,35 @@ export class FlightVisual {
     }
     const attr = this.trail.geometry.getAttribute("position") as THREE.BufferAttribute;
     attr.needsUpdate = true;
+  }
+
+  /**
+   * Fraction along the arc where it crosses a vertical plane (point +
+   * XZ normal), or null if it never does. Used to find where a partitioned
+   * packet meets the wall.
+   */
+  crossing(planePoint: THREE.Vector3, planeNormal: THREE.Vector3): number | null {
+    const SAMPLES = 24;
+    const scratch = new THREE.Vector3();
+    const signed = (t: number): number =>
+      this.curve.getPoint(t, scratch).sub(planePoint).dot(planeNormal);
+
+    let prev = signed(0);
+    for (let i = 1; i <= SAMPLES; i += 1) {
+      const t = i / SAMPLES;
+      const d = signed(t);
+      if (prev <= 0 !== d <= 0) {
+        const t0 = (i - 1) / SAMPLES;
+        return t0 + (prev / (prev - d)) * (t - t0);
+      }
+      prev = d;
+    }
+    return null;
+  }
+
+  /** World position at a given progress along the arc. */
+  pointAt(progress: number): THREE.Vector3 {
+    return this.curve.getPoint(Math.min(Math.max(progress, 0), 1));
   }
 
   dispose(): void {

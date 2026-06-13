@@ -55,16 +55,26 @@ class RippleFx implements Fx {
   }
 }
 
+interface FizzleOptions {
+  readonly color?: number;
+  readonly duration?: number;
+  readonly maxScale?: number;
+}
+
 /** Brief burst where a message died. */
 class FizzleFx implements Fx {
   readonly object: THREE.Sprite;
   private life = 0;
+  private readonly duration: number;
+  private readonly maxScale: number;
 
-  constructor(position: THREE.Vector3, glowTexture: THREE.Texture) {
+  constructor(position: THREE.Vector3, glowTexture: THREE.Texture, options: FizzleOptions = {}) {
+    this.duration = options.duration ?? 0.5;
+    this.maxScale = options.maxScale ?? 1.1;
     this.object = new THREE.Sprite(
       new THREE.SpriteMaterial({
         map: glowTexture,
-        color: FX_COLORS.fizzle,
+        color: options.color ?? FX_COLORS.fizzle,
         transparent: true,
         opacity: 0.9,
         blending: THREE.AdditiveBlending,
@@ -77,9 +87,9 @@ class FizzleFx implements Fx {
 
   update(dt: number): boolean {
     this.life += dt;
-    const t = this.life / 0.5;
+    const t = this.life / this.duration;
     if (t >= 1) return false;
-    this.object.scale.setScalar(0.3 + t * 1.1);
+    this.object.scale.setScalar(0.3 + t * this.maxScale);
     this.object.material.opacity = 0.9 * (1 - t);
     return true;
   }
@@ -98,4 +108,9 @@ export function createFx(kind: FxKind, position: THREE.Vector3, glowTexture: THR
     case "fizzle":
       return new FizzleFx(position, glowTexture);
   }
+}
+
+/** A bigger, hotter burst — a packet detonating against the partition wall. */
+export function createBlast(position: THREE.Vector3, glowTexture: THREE.Texture): Fx {
+  return new FizzleFx(position, glowTexture, { color: 0xff7043, duration: 0.6, maxScale: 2.4 });
 }

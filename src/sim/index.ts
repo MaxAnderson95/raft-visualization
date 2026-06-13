@@ -9,6 +9,7 @@ export type {
   MessageFlight,
   NarratedEvent,
   NetworkConditions,
+  PartitionState,
   SimCause,
   SimMessage,
   SimulationOptions,

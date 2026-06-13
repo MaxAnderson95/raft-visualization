@@ -6,9 +6,10 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import type { NodeId } from "../raft/index.ts";
 import { INK, REDUCED_MOTION, ROLE_CSS, termColor } from "../theme.ts";
-import { createFx, type Fx } from "./fx.ts";
+import { createBlast, createFx, type Fx } from "./fx.ts";
 import { FlightVisual, flightCurve } from "./flight-visual.ts";
 import { createNodeVisualContext, NodeVisual, type NodeVisualContext } from "./node-visual.ts";
+import { PartitionVisual } from "./partition-visual.ts";
 import { createGlowTexture, createStageTexture } from "./textures.ts";
 import type { NodeView, RenderView } from "./types.ts";
 
@@ -51,6 +52,9 @@ export class ClusterScene {
   private readonly angles = new Map<NodeId, { current: number; target: number }>();
   private readonly flightVisuals = new Map<number, FlightVisual>();
   private fx: Fx[] = [];
+  private wall: PartitionVisual | null = null;
+  /** Flights already detonated against the wall — don't recreate them. */
+  private readonly explodedFlights = new Set<number>();
 
   private readonly controls: OrbitControls;
   private readonly pointer = new THREE.Vector2(99, 99);
@@ -140,11 +144,9 @@ export class ClusterScene {
   update(view: RenderView, dt: number, paused: boolean): void {
     void paused;
     this.elapsed += dt;
-    this.layoutAngles(view);
-    this.reconcileNodes(view, dt);
-    this.reconcileFlights(view);
 
-    // Stale transients from a discarded present (scrub-back / fork).
+    // Stale transients from a discarded present (scrub-back / fork). Cleared
+    // before flights so a replayed partition re-detonates its packets.
     if (view.fxEpoch !== this.fxEpoch) {
       this.fxEpoch = view.fxEpoch;
       for (const fx of this.fx) {
@@ -152,7 +154,13 @@ export class ClusterScene {
         fx.dispose();
       }
       this.fx = [];
+      this.explodedFlights.clear();
     }
+
+    this.layoutAngles(view);
+    this.reconcileNodes(view, dt);
+    this.reconcileWall(view, dt);
+    this.reconcileFlights(view);
     this.spawnFx(view);
 
     // Transients always run on wall time so they finish even while paused.
@@ -232,10 +240,39 @@ export class ClusterScene {
     }
   }
 
+  private reconcileWall(view: RenderView, dt: number): void {
+    if (view.partition) {
+      if (!this.wall) {
+        this.wall = new PartitionVisual();
+        this.root.add(this.wall.group);
+      }
+      const aSet = new Set(view.partition.groupA);
+      this.wall.show(
+        view.nodes.map((n) => ({ id: n.id, inA: aSet.has(n.id), pos: this.positionOf(n.id) })),
+      );
+    } else if (this.wall) {
+      this.wall.hide();
+    }
+
+    if (this.wall) {
+      const opacity = this.wall.update(dt);
+      if (!view.partition && opacity < 0.02) {
+        this.root.remove(this.wall.group);
+        this.wall.dispose();
+        this.wall = null;
+      }
+    }
+  }
+
   private reconcileFlights(view: RenderView): void {
     const seen = new Set<number>();
+    const aSet = view.partition ? new Set(view.partition.groupA) : null;
+
     for (const flight of view.flights) {
+      // A packet that already detonated against the wall stays gone.
+      if (this.explodedFlights.has(flight.id)) continue;
       seen.add(flight.id);
+
       let visual = this.flightVisuals.get(flight.id);
       if (!visual) {
         const from = this.positionOf(flight.from);
@@ -245,13 +282,38 @@ export class ClusterScene {
         this.flightVisuals.set(flight.id, visual);
         this.root.add(visual.group);
       }
-      visual.apply(flight);
+
+      // Does it cross a live partition? Random-loss deaths (dying) keep their
+      // own mid-air burst rather than reaching the barrier.
+      const blocked = !!aSet && !flight.dying && aSet.has(flight.from) !== aSet.has(flight.to);
+      const wallProgress =
+        blocked && this.wall?.active ? visual.crossing(this.wall.point, this.wall.normal) : null;
+
+      visual.apply(flight, wallProgress ?? undefined);
+
+      if (wallProgress !== null && flight.progress >= wallProgress) {
+        const blast = createBlast(visual.pointAt(wallProgress), this.glowTexture);
+        this.fx.push(blast);
+        this.root.add(blast.object);
+        this.root.remove(visual.group);
+        visual.dispose();
+        this.flightVisuals.delete(flight.id);
+        this.explodedFlights.add(flight.id);
+      }
     }
+
     for (const [id, visual] of this.flightVisuals) {
       if (!seen.has(id)) {
         this.root.remove(visual.group);
         visual.dispose();
         this.flightVisuals.delete(id);
+      }
+    }
+    // Forget detonated flights once they leave the live set, bounding the set.
+    if (this.explodedFlights.size > 0) {
+      const live = new Set(view.flights.map((f) => f.id));
+      for (const id of this.explodedFlights) {
+        if (!live.has(id)) this.explodedFlights.delete(id);
       }
     }
   }

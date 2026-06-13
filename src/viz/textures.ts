@@ -35,3 +35,39 @@ export function createStageTexture(): THREE.Texture {
     ctx.fillRect(0, 0, 512, 512);
   });
 }
+
+/**
+ * The partition barrier: an energy curtain, brightest at its base and
+ * fading up, melting away at the left/right edges, with faint vertical
+ * striations. White here, tinted red by the material it's drawn with.
+ */
+export function createWallTexture(): THREE.Texture {
+  return canvasTexture(256, (ctx) => {
+    const S = 256;
+
+    // Rises from the ground (canvas bottom), fading toward the top.
+    const v = ctx.createLinearGradient(0, S, 0, 0);
+    v.addColorStop(0, "rgba(255,255,255,0.9)");
+    v.addColorStop(0.4, "rgba(255,255,255,0.4)");
+    v.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = v;
+    ctx.fillRect(0, 0, S, S);
+
+    // Vertical energy striations.
+    ctx.globalCompositeOperation = "destination-out";
+    for (let x = 0; x < S; x += 7) {
+      ctx.fillStyle = `rgba(0,0,0,${0.18 + 0.12 * Math.sin(x * 0.7)})`;
+      ctx.fillRect(x, 0, 2.5, S);
+    }
+
+    // Soft fade at the two ends so the curtain dissolves into space.
+    const edge = ctx.createLinearGradient(0, 0, S, 0);
+    edge.addColorStop(0, "rgba(0,0,0,1)");
+    edge.addColorStop(0.16, "rgba(0,0,0,0)");
+    edge.addColorStop(0.84, "rgba(0,0,0,0)");
+    edge.addColorStop(1, "rgba(0,0,0,1)");
+    ctx.fillStyle = edge;
+    ctx.fillRect(0, 0, S, S);
+    ctx.globalCompositeOperation = "source-over";
+  });
+}
