@@ -97,23 +97,39 @@ export class KVPanel {
     const viewSnap = viewId ? frame.nodes.find((n) => n.id === viewId) : undefined;
     const pendingSets = new Map<string, string>();
     const pendingDels = new Set<string>();
+    // Log index that produced each key's currently displayed value, so each
+    // row can show where in the replicated log the entry lives.
+    const committedIdx = new Map<string, number>();
+    const pendingIdx = new Map<string, number>();
     if (viewSnap) {
-      for (const entry of viewSnap.log.slice(viewSnap.commitIndex)) {
+      for (const entry of viewSnap.log) {
         const command = entry.command;
+        const committed = entry.index <= viewSnap.commitIndex;
         if (command.op === "set") {
-          pendingSets.set(command.key, command.value);
-          pendingDels.delete(command.key);
+          if (committed) {
+            committedIdx.set(command.key, entry.index);
+          } else {
+            pendingSets.set(command.key, command.value);
+            pendingDels.delete(command.key);
+            pendingIdx.set(command.key, entry.index);
+          }
         } else if (command.op === "del") {
-          pendingDels.add(command.key);
-          pendingSets.delete(command.key);
+          if (committed) {
+            committedIdx.delete(command.key);
+          } else {
+            pendingDels.add(command.key);
+            pendingSets.delete(command.key);
+          }
         }
       }
     }
 
     const signature = [
       viewId ?? "-",
-      store ? [...store.entries()].map(([k, v]) => `${k}=${v}`).join(";") : "none",
-      [...pendingSets.entries()].map(([k, v]) => `${k}=${v}`).join(";"),
+      store
+        ? [...store.entries()].map(([k, v]) => `${k}=${v}@${committedIdx.get(k) ?? "?"}`).join(";")
+        : "none",
+      [...pendingSets.entries()].map(([k, v]) => `${k}=${v}@${pendingIdx.get(k) ?? "?"}`).join(";"),
       [...pendingDels].join(";"),
     ].join("|");
     if (signature === this.lastRendered) return;
@@ -125,12 +141,19 @@ export class KVPanel {
       return;
     }
 
-    const addRow = (key: string, value: string, classes: string): void => {
+    const addRow = (
+      key: string,
+      value: string,
+      classes: string,
+      index: number | undefined,
+    ): void => {
       const row = el("div", `kv-row ${classes}`.trim());
+      const idx = el("span", "kv-idx", index === undefined ? "" : `#${index}`);
+      if (index !== undefined) idx.title = `log index ${index}`;
       const del = el("button", "del", "✕");
       del.title = `delete ${key}`;
       del.addEventListener("click", () => this.app.proposeDel(key));
-      row.append(el("span", "key", key), el("span", "eq", "="), el("span", "val", value), del);
+      row.append(idx, el("span", "key", key), el("span", "eq", "="), el("span", "val", value), del);
       if (classes.includes("pending")) row.title = "in the log, awaiting commit";
       this.table.appendChild(row);
     };
@@ -138,11 +161,11 @@ export class KVPanel {
     // Uncommitted writes first (they're the newest), then committed state
     // in write-recency order.
     for (const [key, value] of [...pendingSets.entries()].reverse()) {
-      addRow(key, value, "pending");
+      addRow(key, value, "pending", pendingIdx.get(key));
     }
     for (const [key, value] of [...(store ?? new Map<string, string>()).entries()].reverse()) {
       if (pendingSets.has(key)) continue;
-      addRow(key, value, pendingDels.has(key) ? "pending deleting" : "");
+      addRow(key, value, pendingDels.has(key) ? "pending deleting" : "", committedIdx.get(key));
     }
   }
 }

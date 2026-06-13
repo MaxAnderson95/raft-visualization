@@ -624,6 +624,15 @@ input:focus-visible {
   background: rgb(255 255 255 / 4%);
 }
 
+.kv-row .kv-idx {
+  flex-shrink: 0;
+  min-width: 26px;
+  color: var(--faint);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
 .kv-row .key {
   color: var(--follower);
 }
