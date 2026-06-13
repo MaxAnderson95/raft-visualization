@@ -272,6 +272,7 @@ input {
   background: var(--panel-bg);
   backdrop-filter: var(--panel-blur);
   font-size: 12px;
+  white-space: nowrap;
   color: var(--text);
   transition:
     border-color 150ms ease,
@@ -935,19 +936,158 @@ input:focus-visible {
   }
 }
 
-@media (max-width: 700px) {
-  #side,
-  #dials {
-    display: none;
-  }
+/* ---------------------------------------------------- compact / mobile mode
 
-  #logmatrix {
-    max-width: calc(100vw - 32px);
-  }
+   Below ~700px there's no room for the panels around the edges, so
+   `body.is-compact` (set by MobileSheet via matchMedia) collapses the side,
+   dial and log stacks into a single bottom drawer with a tab bar, shrinks the
+   topbar, and wraps the timeline. Everything keys off that one class, so the
+   desktop layout above is left untouched. */
 
-  .cluster-stats {
-    display: none;
-  }
+/* The drawer tab bar only exists in compact mode. */
+.sheet-tabs {
+  display: none;
+}
+
+body.is-compact {
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+  --tabbar-h: 46px;
+  --bottom-chrome: calc(var(--tabbar-h) + var(--safe-b));
+}
+
+/* topbar: shrink the wordmark, let the action buttons wrap, drop the stats */
+body.is-compact #topbar {
+  gap: 10px;
+  padding: calc(8px + var(--safe-t)) 12px 8px;
+  flex-wrap: wrap;
+}
+
+body.is-compact .wordmark h1 {
+  font-size: 22px;
+}
+
+body.is-compact .cluster-stats {
+  display: none;
+}
+
+body.is-compact .topbar-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+body.is-compact .topbar-actions .btn {
+  padding: 6px 9px;
+  font-size: 11px;
+}
+
+/* timeline: wrap so the scrubber gets its own full-width row up top */
+body.is-compact #timeline {
+  left: 8px;
+  right: 8px;
+  bottom: calc(var(--bottom-chrome) + 8px);
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 10px 12px;
+}
+
+body.is-compact #timeline .tape-wrap {
+  order: -1;
+  flex: 1 0 100%;
+  height: 30px;
+}
+
+body.is-compact .time-readout {
+  min-width: 0;
+}
+
+body.is-compact .speed-ctl input[type="range"] {
+  min-width: 56px;
+}
+
+body.is-compact .live-btn {
+  padding: 7px 10px;
+  letter-spacing: 0.1em;
+}
+
+/* tab bar pinned to the bottom edge, clearing the home indicator */
+body.is-compact .sheet-tabs {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px calc(6px + var(--safe-b));
+  background: color-mix(in srgb, var(--ink) 90%, transparent);
+  backdrop-filter: var(--panel-blur);
+  -webkit-backdrop-filter: var(--panel-blur);
+  border-top: 1px solid var(--line-soft);
+}
+
+.sheet-tab {
+  flex: 1;
+  padding: 9px 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  color: var(--dim);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition:
+    color 150ms ease,
+    border-color 150ms ease;
+}
+
+.sheet-tab.is-active {
+  color: var(--text);
+  border-color: var(--follower);
+}
+
+/* the side / dial / log stacks become one bottom sheet, one open at a time */
+body.is-compact #side,
+body.is-compact #dials,
+body.is-compact #logmatrix {
+  position: fixed;
+  inset: auto 8px calc(var(--bottom-chrome) + 8px);
+  width: auto;
+  max-width: none;
+  max-height: min(48vh, 440px);
+  z-index: 25;
+  display: none;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+body.is-compact #side.is-open,
+body.is-compact #dials.is-open,
+body.is-compact #logmatrix.is-open {
+  display: flex;
+}
+
+/* Panels keep their natural height and the sheet scrolls — otherwise the
+   flex column shrinks them (the feed has flex:1) and their content spills
+   out of the box and overlaps the next panel. */
+body.is-compact #side > *,
+body.is-compact #dials > *,
+body.is-compact #logmatrix > * {
+  flex: 0 0 auto;
+}
+
+/* keep transient toasts above the bottom chrome */
+body.is-compact #toasts {
+  bottom: calc(var(--bottom-chrome) + 16px);
+}
+
+/* an open sheet stands in for the scrubber, so hide the timeline behind it */
+body.is-compact.sheet-open #timeline {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 /* --------------------------------------------------------- reduced motion */

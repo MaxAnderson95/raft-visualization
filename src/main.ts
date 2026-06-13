@@ -11,6 +11,7 @@ import { Feed } from "./ui/feed.ts";
 import { Inspector } from "./ui/inspector.ts";
 import { KVPanel } from "./ui/kvpanel.ts";
 import { LogMatrix } from "./ui/logmatrix.ts";
+import { MobileSheet } from "./ui/sheet.ts";
 import { Timeline } from "./ui/timeline.ts";
 import { Topbar } from "./ui/topbar.ts";
 import { createToaster } from "./ui/toasts.ts";
@@ -29,8 +30,15 @@ const seed = Number(params.get("seed")) || Math.floor(Math.random() * 1_000_000)
 const app = new App(seed);
 app.onToast = createToaster(need("toasts"));
 
+// Owns the compact-mode bottom drawer; harmless (idle) on desktop.
+const sheet = new MobileSheet();
+
 const scene = new ClusterScene(need("scene"), need("labels"), {
-  onSelectNode: (id) => app.select(id),
+  onSelectNode: (id) => {
+    app.select(id);
+    // On mobile, tapping a node raises the inspector so the tap does something.
+    if (app.selected) sheet.open("side");
+  },
 });
 
 const topbar = new Topbar(need("topbar"), app);

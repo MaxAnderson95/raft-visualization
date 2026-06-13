@@ -15,6 +15,17 @@ import type { NodeView, RenderView } from "./types.ts";
 const RING_RADIUS = 6;
 const TAU = Math.PI * 2;
 
+/**
+ * Framing radii used to pick a field of view that fits the cluster for the
+ * current aspect ratio. `FIT_H` is the hard horizontal limit (ring + node
+ * halo) that must always stay on-screen so no node spills off the edge;
+ * `FIT_V` is the looser vertical-comfort radius, calibrated so wide screens
+ * reproduce the original ~42° look (vertical-bound) while portrait/narrow
+ * viewports widen the FOV instead of clipping the sides.
+ */
+const FIT_H = 7;
+const FIT_V = 9.4;
+
 export interface SceneCallbacks {
   onSelectNode(id: NodeId | null): void;
 }
@@ -407,18 +418,35 @@ export class ClusterScene {
   private resize(): void {
     const w = this.container.clientWidth || 1;
     const h = this.container.clientHeight || 1;
+    const compact = w <= 700;
 
     // Re-center the cluster in the area not covered by HUD chrome: dial
     // panels on the left, the side panel stack on the right, and the
     // timeline along the bottom. The virtual frame is extended by all
     // reserved space; the full-frame center then lands at the free area's
-    // center.
-    const reserveRight = w > 700 ? 316 : 0; // #side width + margin (hidden ≤700px)
-    const reserveLeft = w > 700 ? 264 : 0; // #dials width + margin
-    const reserveBottom = 260; // timeline + breathing room for the log matrix
+    // center. In compact mode the side stacks collapse into the bottom
+    // drawer, so only the bottom chrome (timeline + tab bar) is reserved.
+    const reserveRight = compact ? 0 : 316; // #side width + margin
+    const reserveLeft = compact ? 0 : 264; // #dials width + margin
+    const reserveBottom = compact ? 168 : 260; // timeline (+ tab bar / log matrix)
     const fullW = w + reserveRight + reserveLeft;
-    this.camera.aspect = fullW / (h + reserveBottom);
-    this.camera.setViewOffset(fullW, h + reserveBottom, reserveRight, reserveBottom, w, h);
+    const fullH = h + reserveBottom;
+    const aspect = fullW / fullH;
+
+    // Adapt the field of view to the aspect ratio so the whole ring stays
+    // framed. Wide screens are vertical-bound (FIT_V → ~42°, unchanged);
+    // narrow/portrait viewports become horizontal-bound and widen the FOV
+    // instead of clipping n4/n5 off the left and right edges.
+    const dist = this.camera.position.distanceTo(this.controls.target);
+    const tanHalf = Math.max(FIT_V / dist, FIT_H / dist / aspect);
+    this.camera.fov = THREE.MathUtils.clamp(
+      THREE.MathUtils.radToDeg(2 * Math.atan(tanHalf)),
+      38,
+      72,
+    );
+
+    this.camera.aspect = aspect;
+    this.camera.setViewOffset(fullW, fullH, reserveRight, reserveBottom, w, h);
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
     this.composer.setSize(w, h);
